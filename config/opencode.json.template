@@ -1,0 +1,21 @@
+{
+  "workspace": "/home/sandbox",
+  "agents": {
+    "code": {
+      "model": "YOUR_OPENAI_SERVER/code",
+      "tools": ["bash", "read", "write", "edit", "glob", "grep", "question", "webfetch", "task", "todowrite", "skill"]
+    },
+    "explore": {
+      "model": "YOUR_OPENAI_SERVER/code",
+      "tools": ["bash", "read", "glob", "grep"]
+    },
+    "general": {
+      "model": "YOUR_OPENAI_SERVER/code",
+      "tools": ["bash", "read", "write", "edit", "glob", "grep", "question", "webfetch", "task", "todowrite", "skill"]
+    }
+  },
+  "ui": {
+    "style": "full",
+    "theme": "dark"
+  }
+}

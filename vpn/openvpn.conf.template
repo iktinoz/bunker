@@ -1,0 +1,49 @@
+# VPN client configuration
+# Connection settings
+client
+dev tun
+proto udp
+
+# VPN server endpoint
+remote YOUR_VPN_SERVER 33283
+
+# Resolv settings
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+
+# Cipher settings
+cipher AES-256-CBC
+fast-io
+
+# Authentication
+# Set CLIENT_CERT to 0 for username/password auth
+setenv CLIENT_CERT 0
+auth-user-pass
+
+# CA certificate (embedded in .ovpn format)
+<ca>
+-----BEGIN CERTIFICATE-----
+[CA_CERTIFICATE_CONTENT]
+-----END CERTIFICATE-----
+</ca>
+
+# TLS auth key (embedded in .ovpn format)
+key-direction 1
+<tls-auth>
+-----BEGIN OpenVPN Static key V1-----
+[TLS_AUTH_KEY_CONTENT]
+-----END OpenVPN Static key V1-----
+</tls-auth>
+
+# Verify server certificate
+remote-cert-tls server
+
+# Logging
+verb 3
+mute 5
+
+# Downgrade privileges (run as user 'nobody')
+user nobody
+group nogroup

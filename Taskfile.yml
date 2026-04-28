@@ -1,0 +1,59 @@
+version: "3.0"
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  sandbox:build:
+    desc: Build sandbox Docker image
+    cmds:
+      - docker build -t bunker-sandbox .
+
+  sandbox:run:
+    desc: Run sandbox with VPN + opencode (requires VPN config)
+    cmds:
+      - docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun bunker-sandbox
+
+  sandbox:run-no-vpn:
+    desc: Run sandbox without VPN (opencode only)
+    cmds:
+      - docker run --rm -it bunker-sandbox
+
+  sandbox:shell:
+    desc: Enter sandbox shell for debugging
+    cmds:
+      - docker run --rm -it bunker-sandbox bash
+
+  sandbox:clean:
+    desc: Remove bunker-sandbox image
+    cmds:
+      - docker rmi bunker-sandbox
+
+  sandbox:logs:
+    desc: View logs from running sandbox
+    cmds:
+      - docker logs bunker-sandbox
+
+  vpn:setup:
+    desc: Setup VPN config from Downloads folder
+    cmds:
+      - echo "Creating vpn directory..."
+      - mkdir -p vpn
+      - echo "Copying VPN config from Downloads..."
+      - cp ~/Downloads/YOUR_VPN_SERVER-cli-vpn.l3.ovpn vpn/openvpn.conf
+      - echo "VPN config copied to vpn/openvpn.conf"
+      - echo ""
+      - echo "IMPORTANT: If VPN requires username/password, create vpn/credentials file with:"
+      - echo "  <username>"
+      - echo "  <password>"
+
+  config:setup:
+    desc: Setup opencode config from ~/.config/opencode
+    cmds:
+      - echo "Creating config directory..."
+      - mkdir -p config
+      - echo "Copying opencode config..."
+      - cp ~/.config/opencode/opencode.json config/opencode.json
+      - echo "opencode config copied to config/opencode.json"

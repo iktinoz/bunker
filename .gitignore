@@ -1,0 +1,25 @@
+# Sensitive VPN and opencode configuration files
+vpn/openvpn.conf
+vpn/credentials
+config/opencode.json
+
+# VPN certificates and keys
+*.ovpn
+*.key
+*.crt
+*.pem
+*.p12
+*.pkcs12
+
+# Keep templates in git
+!vpn/*.template
+!config/*.template
+
+# Docker artifacts
+.dockerignore
+
+# Secret files
+secrets/
+*.secret
+.env
+.env.local
