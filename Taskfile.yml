@@ -1,10 +1,10 @@
-version: "3.0"
+version: "3"
 
 tasks:
   default:
     desc: Show available tasks
     cmds:
-      - task --list
+      - go-task --list
 
   sandbox:build:
     desc: Build sandbox Docker image
@@ -35,19 +35,6 @@ tasks:
     desc: View logs from running sandbox
     cmds:
       - docker logs bunker-sandbox
-
-  vpn:setup:
-    desc: Setup VPN config from Downloads folder
-    cmds:
-      - echo "Creating vpn directory..."
-      - mkdir -p vpn
-      - echo "Copying VPN config from Downloads..."
-      - cp ~/Downloads/YOUR_VPN_SERVER-cli-vpn.l3.ovpn vpn/openvpn.conf
-      - echo "VPN config copied to vpn/openvpn.conf"
-      - echo ""
-      - echo "IMPORTANT: If VPN requires username/password, create vpn/credentials file with:"
-      - echo "  <username>"
-      - echo "  <password>"
 
   config:setup:
     desc: Setup opencode config from ~/.config/opencode

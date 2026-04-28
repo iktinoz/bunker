@@ -1,5 +1,5 @@
 # Sensitive VPN and opencode configuration files
-vpn/openvpn.conf
+vpn/openvpn.ovpn
 vpn/credentials
 config/opencode.json
 

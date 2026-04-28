@@ -6,18 +6,13 @@ This repository contains a Docker sandbox for development using opencode TUI, Op
 
 ### 1. Setup VPN Configuration (Optional)
 
-If you need VPN connectivity:
+Place your downloaded `.ovpn` file from your company at `vpn/openvpn.ovpn`:
 
 ```bash
-# Copy VPN config from Downloads
-task vpn:setup
-
-# OR manually:
-cp ~/Downloads/YOUR_VPN_SERVER-cli-vpn.l3.ovpn vpn/openvpn.conf
-
-# If VPN requires username/password, create credentials file:
-echo -e "your_username\nyour_password" > vpn/credentials
+cp ~/Downloads/your-vpn-config.ovpn vpn/openvpn.ovpn
 ```
+
+VPN credentials are **never stored on disk** — you will be prompted interactively for username and password each time the container starts.
 
 ### 2. Setup opencode Configuration (Optional)
 
@@ -34,14 +29,13 @@ cp ~/.config/opencode/opencode.json config/opencode.json
 ### 3. Build the Sandbox
 
 ```bash
-# Build the Docker image
 task sandbox:build
 ```
 
 ### 4. Run the Sandbox
 
 ```bash
-# Run with VPN (requires vpn/openvpn.conf)
+# Run with VPN (requires vpn/openvpn.ovpn)
 task sandbox:run
 
 # Or run without VPN
@@ -51,19 +45,27 @@ task sandbox:run-no-vpn
 task sandbox:shell
 ```
 
+When VPN is configured, the container will prompt for credentials at startup:
+
+```
+VPN username: <your_username>
+VPN password: <your_password>
+```
+
 ## Architecture
 
 - **Base**: Arch Linux (via Docker)
 - **Packages**: opencode, openvpn, git, bash, fish
 - **Dotfiles**: Cloned from https://github.com/iktinoz/dotfiles during build
 - **Workspace**: `/home/sandbox`
-- **VPN**: Using openvpn with configuration from `vpn/openvpn.conf`
+- **VPN**: Using openvpn with configuration from `vpn/openvpn.ovpn`
 
 ## VPN Features
 
 The container automatically:
 - Starts opencode TUI in the background
-- Connects VPN using `vpn/openvpn.conf` (if provided)
+- Connects VPN using `vpn/openvpn.ovpn` (if provided), prompting for credentials at startup
+- Writes credentials to a temporary file (chmod 600) and wipes it after openvpn reads them
 - Requires `--cap-add=NET_ADMIN` and `--device /dev/net/tun` for VPN
 - Cleans up VPN and opencode on exit
 
@@ -71,16 +73,14 @@ The container automatically:
 
 | File | Description |
 |------|-------------|
-| `vpn/openvpn.conf` | VPN client configuration (gitignored) |
-| `vpn/openvpn.conf.template` | VPN configuration template |
-| `vpn/credentials` | VPN username/password (gitignored) |
+| `vpn/openvpn.ovpn` | VPN client configuration (gitignored) |
+| `vpn/openvpn.ovpn.template` | VPN configuration template |
 | `config/opencode.json` | opencode settings (gitignored) |
 | `config/opencode.json.template` | opencode settings template |
 
 ## Cleanup
 
 ```bash
-# Remove sandbox image
 task sandbox:clean
 ```
 
@@ -89,7 +89,6 @@ task sandbox:clean
 To publish the image for public use:
 
 ```bash
-# Tag and push
 docker tag bunker-sandbox <your-registry>/bunker-sandbox:latest
 docker push <your-registry>/bunker-sandbox:latest
 ```
@@ -97,6 +96,7 @@ docker push <your-registry>/bunker-sandbox:latest
 ## Notes
 
 - VPN configuration files are `.gitignore`'d to avoid committing sensitive data
+- VPN credentials are never stored in the image or on disk — prompted at runtime
 - Templates are provided for reference
 - Container runs as user `sandbox` (uid 1000)
 - All processes are gracefully terminated on exit
