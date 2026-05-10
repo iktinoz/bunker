@@ -35,4 +35,8 @@ echo "Sandbox is ready!"
 echo "  - VPN: $([ -f /etc/openvpn/client.conf ] && echo 'Enabled' || echo 'Not configured')"
 echo ""
 
-exec su -s /bin/fish - sandbox
+if [ -n "$ENTRY_DIR" ]; then
+  exec su -s /bin/bash - sandbox -c "cd '$ENTRY_DIR' && exec fish -l"
+else
+  exec su -s /bin/fish - sandbox
+fi

@@ -12,14 +12,30 @@ tasks:
       - docker build -t bunker-sandbox .
 
   sandbox:run:
-    desc: Run sandbox with VPN + opencode (requires VPN config)
+    desc: "Run sandbox with VPN + opencode (requires VPN config). Optional: pass a host path to mount as entry folder (e.g. task sandbox:run -- /repo/)"
     cmds:
-      - docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun bunker-sandbox
+      - |
+        if [ -n "{{.CLI_ARGS}}" ]; then
+          docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun \
+            -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
+            -e ENTRY_DIR="{{.CLI_ARGS}}" \
+            bunker-sandbox
+        else
+          docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun bunker-sandbox
+        fi
 
   sandbox:run-no-vpn:
-    desc: Run sandbox without VPN (opencode only)
+    desc: "Run sandbox without VPN (opencode only). Optional: pass a host path to mount as entry folder (e.g. task sandbox:run-no-vpn -- /repo/)"
     cmds:
-      - docker run --rm -it bunker-sandbox
+      - |
+        if [ -n "{{.CLI_ARGS}}" ]; then
+          docker run --rm -it \
+            -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
+            -e ENTRY_DIR="{{.CLI_ARGS}}" \
+            bunker-sandbox
+        else
+          docker run --rm -it bunker-sandbox
+        fi
 
   sandbox:shell:
     desc: Enter sandbox shell for debugging
@@ -44,3 +60,10 @@ tasks:
       - echo "Copying opencode config..."
       - cp ~/.config/opencode/opencode.json config/opencode.json
       - echo "opencode config copied to config/opencode.json"
+      - |
+        if [ -f ~/.config/opencode/tui.json ]; then
+          cp ~/.config/opencode/tui.json config/tui.json
+          echo "tui config copied to config/tui.json"
+        else
+          echo "No tui.json found in ~/.config/opencode/, skipping"
+        fi

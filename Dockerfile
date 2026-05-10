@@ -72,11 +72,15 @@ RUN if [ -f /tmp/vpn/openvpn.ovpn ]; then \
 
 # Copy opencode configuration if it exists (optional - run 'task config:setup' first)
 COPY config/ /tmp/opencode-config/
-RUN if [ -f /tmp/opencode-config/opencode.json ]; then \
-      mkdir -p /home/sandbox/.config/opencode && \
-      cp /tmp/opencode-config/opencode.json /home/sandbox/.config/opencode/opencode.json && \
-      chown sandbox:sandbox /home/sandbox/.config/opencode/opencode.json; \
-    fi && rm -rf /tmp/opencode-config
+RUN mkdir -p /home/sandbox/.config/opencode && \
+    if [ -f /tmp/opencode-config/opencode.json ]; then \
+      cp /tmp/opencode-config/opencode.json /home/sandbox/.config/opencode/opencode.json; \
+    fi && \
+    if [ -f /tmp/opencode-config/tui.json ]; then \
+      cp /tmp/opencode-config/tui.json /home/sandbox/.config/opencode/tui.json; \
+    fi && \
+    chown -R sandbox:sandbox /home/sandbox/.config/opencode && \
+    rm -rf /tmp/opencode-config
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
