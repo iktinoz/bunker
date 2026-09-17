@@ -14,9 +14,15 @@ This is a **public** repository. These paths are gitignored and must stay that w
 | `config/claude/CLAUDE.md` | derived from the host's personal memory |
 | `vpn/openvpn.ovpn` | company VPN profile |
 
-Only the `*.template` counterparts are tracked. Before committing, check
-`git status --short --ignored` and make sure those four are still listed as `!!`.
-VPN credentials are never stored anywhere — the entrypoint prompts for them at runtime.
+Only the `*.template` counterparts are tracked. This is enforced by a gitleaks
+pre-commit hook (`.pre-commit-config.yaml` + `.gitleaks.toml`): run
+`task hooks:install` once per clone to activate it, and `task hooks:audit` to sweep the
+full commit history. The defaults do not cover the VPN profile's static key or the personal
+Claude config, so `.gitleaks.toml` adds path rules for the four paths above — keep it in
+sync if that table changes. If gitleaks flags something genuinely safe, add a trailing
+`# gitleaks:allow` or an allowlist entry in `.gitleaks.toml`; never reach for
+`git commit --no-verify`. VPN credentials are never stored anywhere — the entrypoint
+prompts for them at runtime.
 
 ## Layout
 
@@ -38,6 +44,8 @@ task sandbox:run-no-vpn      # run without VPN
 task sandbox:shell           # debug shell
 task config:setup            # import host opencode config
 task config:setup:claude     # import host Claude config (hooks/statusLine stripped)
+task hooks:install           # activate the gitleaks pre-commit hook (once per clone)
+task hooks:audit             # scan the full commit history for secrets
 ```
 
 The binary is `go-task`; `task` is a shell alias on the maintainer's host.

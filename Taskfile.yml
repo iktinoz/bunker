@@ -114,3 +114,17 @@ tasks:
         else
           echo "No CLAUDE.md found in ~/.claude/, skipping"
         fi
+
+  hooks:install:
+    desc: Install the gitleaks pre-commit hook (once per clone)
+    cmds:
+      - pre-commit install
+
+  hooks:audit:
+    desc: Scan the full commit history for secrets (one-off audit)
+    cmds:
+      # `pre-commit run --all-files` is NOT an audit: the gitleaks hook sets
+      # pass_filenames: false and scans `--staged`, so with an empty index it
+      # passes trivially. This scans every commit instead. Pinned to the same
+      # version as the rev in .pre-commit-config.yaml.
+      - docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 git --redact --no-banner /repo
