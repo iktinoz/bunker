@@ -24,12 +24,14 @@ tasks:
       - |
         if [ -n "{{.CLI_ARGS}}" ]; then
           docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun \
+            -p 4747:4747 \
             -v "{{.CLAUDE_MOUNT}}" \
             -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
             -e ENTRY_DIR="{{.CLI_ARGS}}" \
             {{.IMAGE}}
         else
           docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun \
+            -p 4747:4747 \
             -v "{{.CLAUDE_MOUNT}}" \
             {{.IMAGE}}
         fi
@@ -40,13 +42,14 @@ tasks:
       - |
         if [ -n "{{.CLI_ARGS}}" ]; then
           docker run --rm -it \
+            -p 4747:4747 \
             -e SKIP_VPN=1 \
             -v "{{.CLAUDE_MOUNT}}" \
             -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
             -e ENTRY_DIR="{{.CLI_ARGS}}" \
             {{.IMAGE}}
         else
-          docker run --rm -it -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}}
+          docker run --rm -it -p 4747:4747 -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}}
         fi
 
   sandbox:shell:
