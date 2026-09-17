@@ -1,0 +1,9 @@
+{
+  "env": {
+    "GIT_TERMINAL_PROMPT": "0"
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits"
+  },
+  "includeCoAuthoredBy": false
+}

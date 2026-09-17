@@ -1,9 +1,6 @@
-# Sensitive VPN and agent configuration files
+# Sensitive VPN configuration files
 vpn/openvpn.ovpn
 vpn/credentials
-config/opencode.json
-config/claude/settings.json
-config/claude/CLAUDE.md
 
 # VPN certificates and keys
 *.ovpn
@@ -15,8 +12,9 @@ config/claude/CLAUDE.md
 
 # Keep templates in git
 !vpn/*.template
-!config/*.template
-!config/claude/*.template
+
+# Build context: `task sandbox:build` exports the dotfiles here before calling docker
+.build/
 
 # Docker artifacts
 .dockerignore

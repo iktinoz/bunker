@@ -6,6 +6,12 @@ vars:
   # logged in across image rebuilds. Mounted at CLAUDE_CONFIG_DIR in the image.
   CLAUDE_VOLUME: bunker-claude
   CLAUDE_MOUNT: "{{.CLAUDE_VOLUME}}:/home/sandbox/.claude"
+  # Bare dotfiles repo holding the personal agent config. $HOME is its work tree.
+  DOTFILES_GIT: "{{.HOME}}/.dotfiles"
+  DOTFILES_REF: master
+  # Paths exported into the build context. Everything else in the dotfiles targets a
+  # desktop this container does not have.
+  DOTFILES_PATHS: ".claude .config/fish .config/opencode .gitconfig"
 
 tasks:
   default:
@@ -13,9 +19,25 @@ tasks:
     cmds:
       - go-task --list
 
-  sandbox:build:
-    desc: Build sandbox Docker image
+  dotfiles:export:
+    desc: Export the tracked dotfiles paths into the build context
+    internal: true
     cmds:
+      # `git archive` reads the bare repo directly: no network, no SSH, no credentials,
+      # and file modes survive. A path that is not tracked aborts the export, so a
+      # forgotten `dotfiles add` breaks the build instead of shipping a config-less
+      # image. Only committed state is exported - commit before you build.
+      - rm -rf .build/dotfiles
+      - mkdir -p .build/dotfiles
+      - git --git-dir="{{.DOTFILES_GIT}}" archive {{.DOTFILES_REF}} {{.DOTFILES_PATHS}} | tar -x -C .build/dotfiles
+      - test -f .build/dotfiles/.claude/settings.json
+
+  sandbox:build:
+    desc: Build sandbox Docker image (exports the dotfiles first)
+    deps: [dotfiles:export]
+    cmds:
+      # Docker keys the COPY layer on the exported content, so this rebuilds exactly
+      # when the dotfiles change. No build arg needed.
       - docker build -t {{.IMAGE}} .
 
   sandbox:run:
@@ -25,6 +47,7 @@ tasks:
         if [ -n "{{.CLI_ARGS}}" ]; then
           docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun \
             -p 4747:4747 \
+            -e OFFIS_LITELLM_API_KEY \
             -v "{{.CLAUDE_MOUNT}}" \
             -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
             -e ENTRY_DIR="{{.CLI_ARGS}}" \
@@ -32,6 +55,7 @@ tasks:
         else
           docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun \
             -p 4747:4747 \
+            -e OFFIS_LITELLM_API_KEY \
             -v "{{.CLAUDE_MOUNT}}" \
             {{.IMAGE}}
         fi
@@ -44,18 +68,19 @@ tasks:
           docker run --rm -it \
             -p 4747:4747 \
             -e SKIP_VPN=1 \
+            -e OFFIS_LITELLM_API_KEY \
             -v "{{.CLAUDE_MOUNT}}" \
             -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
             -e ENTRY_DIR="{{.CLI_ARGS}}" \
             {{.IMAGE}}
         else
-          docker run --rm -it -p 4747:4747 -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}}
+          docker run --rm -it -p 4747:4747 -e SKIP_VPN=1 -e OFFIS_LITELLM_API_KEY -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}}
         fi
 
   sandbox:shell:
     desc: Enter sandbox shell for debugging
     cmds:
-      - docker run --rm -it -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}} bash
+      - docker run --rm -it -e SKIP_VPN=1 -e OFFIS_LITELLM_API_KEY -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}} bash
 
   sandbox:clean:
     desc: Remove bunker-sandbox image
@@ -70,53 +95,25 @@ tasks:
   claude:login:
     desc: One-time Claude Code login; the session is stored in the persistent volume
     cmds:
-      - docker run --rm -it -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}} claude
+      - docker run --rm -it -e SKIP_VPN=1 -e OFFIS_LITELLM_API_KEY -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}} claude
 
   claude:reset:
     desc: Delete the Claude Code state volume (forces a fresh login)
     cmds:
       - docker volume rm {{.CLAUDE_VOLUME}}
 
-  config:setup:
-    desc: Setup opencode config from ~/.config/opencode
+  config:preview:
+    desc: Show what the build would stage as the sandbox's agent config (no container)
+    deps: [dotfiles:export]
     cmds:
-      - echo "Creating config directory..."
-      - mkdir -p config
-      - echo "Copying opencode config..."
-      - cp ~/.config/opencode/opencode.json config/opencode.json
-      - echo "opencode config copied to config/opencode.json"
-      - |
-        if [ -f ~/.config/opencode/tui.json ]; then
-          cp ~/.config/opencode/tui.json config/tui.json
-          echo "tui config copied to config/tui.json"
-        else
-          echo "No tui.json found in ~/.config/opencode/, skipping"
-        fi
-
-  config:setup:claude:
-    desc: Setup Claude Code config from ~/.claude (hooks and statusLine are stripped)
-    cmds:
-      - mkdir -p config/claude
-      - |
-        if [ ! -f ~/.claude/settings.json ]; then
-          echo "No settings.json found in ~/.claude/, skipping"
-        elif ! command -v jq >/dev/null 2>&1; then
-          echo "jq is required to strip host-only hooks/statusLine - install jq or edit config/claude/settings.json by hand" >&2
-          exit 1
-        else
-          # hooks and statusLine point at host scripts that do not exist in the image;
-          # a missing hook script fails the session on its first matching tool call.
-          jq 'del(.hooks, .statusLine)' ~/.claude/settings.json > config/claude/settings.json.tmp
-          mv config/claude/settings.json.tmp config/claude/settings.json
-          echo "Claude settings copied to config/claude/settings.json (hooks/statusLine removed)"
-        fi
-      - |
-        if [ -f ~/.claude/CLAUDE.md ]; then
-          cp ~/.claude/CLAUDE.md config/claude/CLAUDE.md
-          echo "Claude memory copied to config/claude/CLAUDE.md"
-        else
-          echo "No CLAUDE.md found in ~/.claude/, skipping"
-        fi
+      # Same jq programs as scripts/stage-agent-config.sh, so a config question can be
+      # answered without a build. Keep the two in sync.
+      - echo "=== Claude Code settings.json (host-only plugin keys removed) ==="
+      - jq 'del(.enabledPlugins, .extraKnownMarketplaces)' .build/dotfiles/.claude/settings.json
+      - echo "=== opencode.json (sandbox overlay merged, host-only MCP dropped) ==="
+      - jq -s '(.[0] | del(.mcp.gitnexus)) * .[1]' .build/dotfiles/.config/opencode/opencode.json config/opencode.sandbox.json
+      - echo "=== /etc/claude-code/CLAUDE.md (sandbox memory, loads before yours) ==="
+      - cat config/claude/CLAUDE.md
 
   hooks:install:
     desc: Install the gitleaks pre-commit hook (once per clone)

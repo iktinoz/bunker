@@ -10,12 +10,15 @@ RUN sed -i 's/^SigLevel.*/SigLevel = Never/' /etc/pacman.conf && \
     pacman-key --populate archlinux && \
     pacman -Syu --noconfirm
 
-# Install opencode, openvpn, git, and required tools
+# Install opencode, openvpn, git, and required tools.
+# jq is not optional: the build-time config staging needs it, and so do the statusline
+# and session-banner hooks that come in from the dotfiles.
 RUN pacman -S --noconfirm \
     opencode \
     openvpn \
     openresolv \
     git \
+    jq \
     bash \
     fish \
     coreutils \
@@ -31,12 +34,23 @@ RUN pacman -S --noconfirm \
 RUN groupadd -r nogroup && \
     useradd -m -u 1000 -s /bin/fish sandbox
 
-# Clone and setup dotfiles
-WORKDIR /tmp/dotfiles
-RUN git clone https://github.com/iktinoz/dotfiles . && \
-    cp -r .config /home/sandbox/ && \
+# Personal config comes from the dotfiles repo, which is private. `task sandbox:build`
+# exports the tracked paths with `git archive` into .build/dotfiles/ before calling
+# docker, so the build needs no credentials, no network and no clone. Docker keys this
+# layer on the exported content, so it rebuilds exactly when the dotfiles change.
+#
+# Copy a whitelist, not all of .config: hypr, waybar, wofi, mako, k9s and nvim target a
+# desktop this container does not have.
+COPY .build/dotfiles/ /tmp/dotfiles/
+RUN cd /tmp/dotfiles && \
+    mkdir -p /home/sandbox/.config && \
+    cp -a .config/fish /home/sandbox/.config/ && \
+    cp -a .config/opencode /home/sandbox/.config/ && \
+    cp -a .claude /home/sandbox/.claude && \
     cp .gitconfig /home/sandbox/ && \
-    chown -R sandbox:sandbox /home/sandbox
+    chown -R sandbox /home/sandbox && \
+    chgrp -R sandbox /home/sandbox && \
+    rm -rf /tmp/dotfiles
 
 # Install Claude Code (not packaged in the Arch repos - official native installer).
 # Run via `su -` so HOME is /home/sandbox and the binary lands in the sandbox
@@ -48,6 +62,8 @@ RUN su -s /bin/bash - sandbox -c 'curl -fsSL https://claude.ai/install.sh | bash
 # Writes DNS directly to /etc/resolv.conf (resolvconf can't run in Docker —
 # no init system, and Docker owns resolv.conf with a signature mismatch).
 RUN mkdir -p /etc/openvpn /home/sandbox/.config/openticate && \
+    chown -R sandbox /home/sandbox/.config/openticate && \
+    chgrp -R sandbox /home/sandbox/.config/openticate && \
     printf '%s\n' \
       '#!/bin/bash' \
       'case $script_type in' \
@@ -76,31 +92,6 @@ RUN if [ -f /tmp/vpn/openvpn.ovpn ]; then \
       printf '\nscript-security 2\nup /etc/openvpn/update-resolv-conf\ndown /etc/openvpn/update-resolv-conf\n' >> /etc/openvpn/client.conf; \
     fi && rm -rf /tmp/vpn
 
-# Copy agent configuration if it exists (optional - run 'task config:setup' first).
-# opencode config is baked straight into its config dir; Claude Code config is only
-# staged under /opt/bunker/claude because /home/sandbox/.claude is a persistent
-# volume at runtime - the entrypoint syncs it in on every start.
-COPY config/ /tmp/bunker-config/
-RUN mkdir -p /home/sandbox/.config/opencode && \
-    if [ -f /tmp/bunker-config/opencode.json ]; then \
-      cp /tmp/bunker-config/opencode.json /home/sandbox/.config/opencode/opencode.json; \
-    fi && \
-    if [ -f /tmp/bunker-config/tui.json ]; then \
-      cp /tmp/bunker-config/tui.json /home/sandbox/.config/opencode/tui.json; \
-    fi && \
-    chown -R sandbox:sandbox /home/sandbox/.config/opencode && \
-    mkdir -p /opt/bunker/claude && \
-    for f in settings.json CLAUDE.md; do \
-      if [ -f "/tmp/bunker-config/claude/$f" ]; then \
-        cp "/tmp/bunker-config/claude/$f" "/opt/bunker/claude/$f"; \
-      elif [ -f "/tmp/bunker-config/claude/$f.template" ]; then \
-        cp "/tmp/bunker-config/claude/$f.template" "/opt/bunker/claude/$f"; \
-      fi; \
-    done && \
-    mkdir -p /home/sandbox/.claude && \
-    chown sandbox:sandbox /home/sandbox/.claude && \
-    rm -rf /tmp/bunker-config
-
 # Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
@@ -108,21 +99,48 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Keep all Claude Code state (settings, .credentials.json, .claude.json, history)
 # in one directory so a single named volume persists the login across rebuilds.
 # The auto-updater is disabled because the binary sits in a root-owned path chain.
+# GIT_TERMINAL_PROMPT=0 is a safety belt: the dotfiles' .gitconfig sets core.askpass
+# and a glab credential helper, neither of which exists here, so without it a git call
+# can block on the TTY that Claude Code owns.
 ENV CLAUDE_CONFIG_DIR=/home/sandbox/.claude \
     DISABLE_AUTOUPDATER=1 \
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    GIT_TERMINAL_PROMPT=0
 
 # `su -` gives the sandbox user a login shell with a reset environment, so the vars
 # above would never reach it. Re-export them as login-shell snippets for both shells
 # the user can land in (bash via `su -s /bin/bash`, fish for the default shell).
-RUN printf 'export CLAUDE_CONFIG_DIR=%s\nexport DISABLE_AUTOUPDATER=%s\nexport CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=%s\n' \
-      "$CLAUDE_CONFIG_DIR" "$DISABLE_AUTOUPDATER" "$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" \
+RUN printf 'export CLAUDE_CONFIG_DIR=%s\nexport DISABLE_AUTOUPDATER=%s\nexport CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=%s\nexport GIT_TERMINAL_PROMPT=%s\n' \
+      "$CLAUDE_CONFIG_DIR" "$DISABLE_AUTOUPDATER" "$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" "$GIT_TERMINAL_PROMPT" \
       > /etc/profile.d/claude-code.sh && \
     chmod 644 /etc/profile.d/claude-code.sh && \
     mkdir -p /etc/fish/conf.d && \
-    printf 'set -gx CLAUDE_CONFIG_DIR %s\nset -gx DISABLE_AUTOUPDATER %s\nset -gx CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC %s\n' \
-      "$CLAUDE_CONFIG_DIR" "$DISABLE_AUTOUPDATER" "$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" \
+    printf 'set -gx CLAUDE_CONFIG_DIR %s\nset -gx DISABLE_AUTOUPDATER %s\nset -gx CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC %s\nset -gx GIT_TERMINAL_PROMPT %s\n' \
+      "$CLAUDE_CONFIG_DIR" "$DISABLE_AUTOUPDATER" "$CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" "$GIT_TERMINAL_PROMPT" \
       > /etc/fish/conf.d/claude-code.fish
+
+# Sandbox-only agent config. This is the last stage on purpose: editing config/ must not
+# rebuild the layers above it.
+#
+# /etc/claude-code/ is Claude Code's managed-policy layer. It loads before the user's own
+# settings and memory and cannot be switched off, so bunker states the sandbox facts
+# there instead of baking a copy of the personal CLAUDE.md.
+#
+# opencode has no such layer, so stage-agent-config.sh merges an overlay into its config
+# and drops the host-only MCP server. Claude Code's config is only staged under
+# /opt/bunker/claude because /home/sandbox/.claude is a persistent volume at runtime -
+# the entrypoint syncs it in on every start.
+COPY config/ /tmp/bunker-config/
+COPY scripts/stage-agent-config.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/stage-agent-config.sh && \
+    mkdir -p /etc/claude-code && \
+    install -m 0644 /tmp/bunker-config/claude/CLAUDE.md /etc/claude-code/CLAUDE.md && \
+    install -m 0644 /tmp/bunker-config/claude/managed-settings.json /etc/claude-code/managed-settings.json && \
+    jq empty /etc/claude-code/managed-settings.json && \
+    /usr/local/bin/stage-agent-config.sh /home/sandbox /tmp/bunker-config && \
+    chown -R sandbox /home/sandbox/.config/opencode /home/sandbox/.claude /opt/bunker && \
+    chgrp -R sandbox /home/sandbox/.config/opencode /home/sandbox/.claude /opt/bunker && \
+    rm -rf /tmp/bunker-config
 
 # Entrypoint runs as root so OpenVPN can manage network interfaces;
 # the shell is dropped to sandbox user via exec su

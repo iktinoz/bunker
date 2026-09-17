@@ -15,41 +15,54 @@ cp ~/Downloads/your-vpn-config.ovpn vpn/openvpn.ovpn
 
 VPN credentials are **never stored on disk** — you will be prompted interactively for username and password each time the container starts.
 
-### 2. Setup Agent Configuration (Optional)
+### 2. Provide the opencode API key
 
-If you want to use custom opencode settings:
+The opencode config reads its LLM proxy key from the environment, so the key is never
+stored in this repo or baked into the image:
 
-```bash
-# Copy opencode config
-task config:setup
-
-# Or manually:
-cp ~/.config/opencode/opencode.json config/opencode.json
+```jsonc
+// in the dotfiles' .config/opencode/opencode.json
+"options": { "baseURL": "https://openai.lcl.offis.de", "apiKey": "{env:OFFIS_LITELLM_API_KEY}" }
 ```
 
-If you want to seed Claude Code with your host settings:
+Export `OFFIS_LITELLM_API_KEY` in the shell you run `task` from; every run task passes
+it through with `docker run -e`. Without it the container still starts and `claude`
+works normally — only opencode's OFFIS provider fails, and the startup banner says so.
 
-```bash
-task config:setup:claude
-```
+### 3. Agent configuration
 
-This strips the `hooks` and `statusLine` keys, which point at host-only scripts that
-don't exist in the image — a missing hook script fails the session on its first
-matching tool call. If you skip this step, the tracked
-`config/claude/settings.json.template` is baked in instead.
+There is nothing to set up. Personal agent config comes from the maintainer's private
+dotfiles repo, which `task sandbox:build` exports with `git archive` before building.
+Only committed state is exported, so **commit your dotfiles before you build**.
 
-It also copies `~/.claude/CLAUDE.md` if you have one. That file usually describes your
-*host* environment, which is not what's inside the container — you may prefer to delete
-`config/claude/CLAUDE.md` and let the sandbox-specific
-`config/claude/CLAUDE.md.template` be used instead, or hand-write your own.
+bunker adds only the sandbox overlay:
 
-### 3. Build the Sandbox
+| File | Becomes | Purpose |
+|------|---------|---------|
+| `config/claude/CLAUDE.md` | `/etc/claude-code/CLAUDE.md` | what is true inside the container |
+| `config/claude/managed-settings.json` | `/etc/claude-code/managed-settings.json` | sandbox setting overrides |
+| `config/opencode.sandbox.json` | merged into `opencode.json` | opencode has no managed layer |
+
+`/etc/claude-code/` is Claude Code's managed-policy layer: it loads before your own
+settings and memory and cannot be switched off. So your personal `CLAUDE.md` arrives
+unchanged and the sandbox facts are stated alongside it, rather than bunker keeping a
+copy of your memory.
+
+Two host-only keys are stripped from `settings.json` during the build:
+`enabledPlugins` and `extraKnownMarketplaces`. Their marketplace lives on
+`gitlab.offis.de` and the container has no credential helper for it, so the install
+would fail. Your `hooks` and `statusLine` are kept — the scripts detect their
+dependencies at runtime and work in the container.
+
+Run `task config:preview` to see exactly what a build would stage, without building.
+
+### 4. Build the Sandbox
 
 ```bash
 task sandbox:build
 ```
 
-### 4. Log in to Claude Code (once)
+### 5. Log in to Claude Code (once)
 
 ```bash
 task claude:login
@@ -59,7 +72,7 @@ The login is written to the persistent `bunker-claude` Docker volume and survive
 image rebuilds, so this is a one-time step. Use `task claude:reset` to wipe it and
 start over.
 
-### 5. Run the Sandbox
+### 6. Run the Sandbox
 
 ```bash
 # Run with VPN (requires vpn/openvpn.ovpn)
@@ -88,10 +101,14 @@ shell.
 ## Architecture
 
 - **Base**: Arch Linux (via Docker)
-- **Packages**: opencode, openvpn, git, bash, fish
+- **Packages**: opencode, openvpn, git, jq, bash, fish
 - **Claude Code**: installed with the official native installer (not in the Arch
   repos) into `/home/sandbox/.local/bin`, symlinked to `/usr/local/bin/claude`
-- **Dotfiles**: Cloned from https://github.com/iktinoz/dotfiles during build
+- **Dotfiles**: exported from the local bare repo `~/.dotfiles` with `git archive`
+  before the build, then `COPY`'d in. The repo is private, so the build deliberately
+  needs no credentials and no network for this step. A whitelist is copied — `fish`,
+  `opencode`, `.claude` and `.gitconfig` — because the rest targets a desktop the
+  container does not have.
 - **Workspace**: `/home/sandbox`
 - **VPN**: Using openvpn with configuration from `vpn/openvpn.ovpn`
 
@@ -102,10 +119,16 @@ settings, `.credentials.json`, `.claude.json` and session history in one directo
 That directory is a named Docker volume (`bunker-claude`) mounted by every run task,
 which is what makes the login persist.
 
-Repo-managed files (`settings.json`, `CLAUDE.md`) are staged in the image under
-`/opt/bunker/claude/` and re-synced into the volume by the entrypoint on **every**
-start — editing `config/claude/` and rebuilding is enough to update them. Everything
-else in the volume (credentials, history, project state) is left untouched.
+Image-managed files — `settings.json`, `CLAUDE.md`, `statusline-command.sh`,
+`hooks/` and the notification sound — are staged under `/opt/bunker/claude/` and
+re-synced into the volume by the entrypoint on **every** start. The sync list is a
+whitelist that the entrypoint removes before copying, so deleting a file in the
+dotfiles actually removes it from the volume. Everything else (credentials, history,
+project state) is left untouched.
+
+The sandbox's own memory and setting overrides are not synced at all: they live in the
+image at `/etc/claude-code/`, Claude Code's managed-policy layer, which loads before
+the user layer and cannot be switched off.
 
 The auto-updater and non-essential traffic are disabled in the image
 (`DISABLE_AUTOUPDATER=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`); the binary
@@ -135,13 +158,13 @@ fish login shell and you launch whichever agent you want.
 |------|-------------|
 | `vpn/openvpn.ovpn` | VPN client configuration (gitignored) |
 | `vpn/openvpn.ovpn.template` | VPN configuration template |
-| `config/opencode.json` | opencode settings (gitignored) |
-| `config/opencode.json.template` | opencode settings template |
-| `config/tui.json` | opencode TUI theme |
-| `config/claude/settings.json` | Claude Code settings (gitignored) |
-| `config/claude/settings.json.template` | Claude Code settings template |
-| `config/claude/CLAUDE.md` | Claude Code memory for the sandbox (gitignored) |
-| `config/claude/CLAUDE.md.template` | Claude Code memory template |
+| `config/claude/CLAUDE.md` | sandbox memory, installed as `/etc/claude-code/CLAUDE.md` |
+| `config/claude/managed-settings.json` | sandbox setting overrides, installed as `/etc/claude-code/managed-settings.json` |
+| `config/opencode.sandbox.json` | overlay merged over the dotfiles' `opencode.json` |
+| `scripts/stage-agent-config.sh` | does the merging and stripping during the build |
+
+Everything personal — `settings.json`, `CLAUDE.md`, hooks, the statusline,
+`opencode.json`, `tui.json` — lives in the dotfiles repo, not here.
 
 ## Cleanup
 
@@ -160,12 +183,19 @@ docker push <your-registry>/bunker-sandbox:latest
 ```
 
 Note that the image contains no credentials — Claude's login lives in the
-`bunker-claude` volume, and VPN credentials are prompted at runtime.
+`bunker-claude` volume, VPN credentials are prompted at runtime, and the opencode API
+key is read from the environment at container start. It does, however, contain the
+maintainer's personal agent config from the dotfiles repo, so a published image is not
+suitable for someone else.
 
 ## Notes
 
-- VPN and agent configuration files are `.gitignore`'d to avoid committing sensitive data
+- The VPN profile is `.gitignore`'d to avoid committing sensitive data; a template is
+  provided for reference
 - VPN credentials are never stored in the image or on disk — prompted at runtime
-- Templates are provided for reference
+- The opencode API key is never stored in this repo or in an image layer — the config
+  holds `{env:OFFIS_LITELLM_API_KEY}` and the value arrives via `docker run -e`
+- Personal agent config is not kept here; it comes from the private dotfiles repo at
+  build time, so commit your dotfiles before you build
 - Container runs the entrypoint as root (OpenVPN needs `NET_ADMIN`) and drops to user `sandbox` (uid 1000) for the shell
 - All processes are gracefully terminated on exit

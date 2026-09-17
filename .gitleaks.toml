@@ -1,17 +1,14 @@
-# Extends gitleaks' built-in ruleset with the paths and key formats specific to
-# this repo - see AGENTS.md "Never commit". The defaults do not cover these:
-# the VPN profile carries a CA certificate and an OpenVPN *static* key (neither
-# matches the built-in private-key rule), and the two Claude config files hold
-# personal settings rather than anything credential-shaped.
+# Extends gitleaks' built-in ruleset with the key formats specific to this repo -
+# see AGENTS.md "Never commit". The defaults do not cover the VPN profile: it carries
+# a CA certificate and an OpenVPN *static* key, and neither matches the built-in
+# private-key rule.
+#
+# Personal agent config is no longer kept here at all - it lives in the dotfiles repo,
+# which has its own gitleaks hook. bunker holds only sandbox-specific overlays, and
+# those contain no credentials by design: the opencode API key is read from the
+# environment at runtime and never enters the image.
 [extend]
 useDefault = true
-
-# Force-adding a gitignored config file is the realistic failure mode, so match
-# on path alone. The `$` anchors keep the *.template counterparts committable.
-[[rules]]
-id = "bunker-protected-config"
-description = "Gitignored on purpose - commit the .template instead (AGENTS.md)"
-path = '''^(config/opencode\.json|config/claude/settings\.json|config/claude/CLAUDE\.md)$'''
 
 # Catches a VPN profile saved under any name, not just the documented one.
 [[rules]]
