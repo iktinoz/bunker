@@ -1,5 +1,12 @@
 version: "3"
 
+vars:
+  IMAGE: bunker-sandbox
+  # Named volume holding Claude Code's login + session state, so `claude` stays
+  # logged in across image rebuilds. Mounted at CLAUDE_CONFIG_DIR in the image.
+  CLAUDE_VOLUME: bunker-claude
+  CLAUDE_MOUNT: "{{.CLAUDE_VOLUME}}:/home/sandbox/.claude"
+
 tasks:
   default:
     desc: Show available tasks
@@ -9,48 +16,63 @@ tasks:
   sandbox:build:
     desc: Build sandbox Docker image
     cmds:
-      - docker build -t bunker-sandbox .
+      - docker build -t {{.IMAGE}} .
 
   sandbox:run:
-    desc: "Run sandbox with VPN + opencode (requires VPN config). Optional: pass a host path to mount as entry folder (e.g. task sandbox:run -- /repo/)"
+    desc: "Run sandbox with VPN + opencode/claude (requires VPN config). Optional: pass a host path to mount as entry folder (e.g. task sandbox:run -- /repo/)"
     cmds:
       - |
         if [ -n "{{.CLI_ARGS}}" ]; then
           docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun \
+            -v "{{.CLAUDE_MOUNT}}" \
             -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
             -e ENTRY_DIR="{{.CLI_ARGS}}" \
-            bunker-sandbox
+            {{.IMAGE}}
         else
-          docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun bunker-sandbox
+          docker run --rm -it --cap-add=NET_ADMIN --device /dev/net/tun \
+            -v "{{.CLAUDE_MOUNT}}" \
+            {{.IMAGE}}
         fi
 
   sandbox:run-no-vpn:
-    desc: "Run sandbox without VPN (opencode only). Optional: pass a host path to mount as entry folder (e.g. task sandbox:run-no-vpn -- /repo/)"
+    desc: "Run sandbox without VPN (opencode/claude only). Optional: pass a host path to mount as entry folder (e.g. task sandbox:run-no-vpn -- /repo/)"
     cmds:
       - |
         if [ -n "{{.CLI_ARGS}}" ]; then
           docker run --rm -it \
+            -e SKIP_VPN=1 \
+            -v "{{.CLAUDE_MOUNT}}" \
             -v "{{.CLI_ARGS}}:{{.CLI_ARGS}}" \
             -e ENTRY_DIR="{{.CLI_ARGS}}" \
-            bunker-sandbox
+            {{.IMAGE}}
         else
-          docker run --rm -it bunker-sandbox
+          docker run --rm -it -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}}
         fi
 
   sandbox:shell:
     desc: Enter sandbox shell for debugging
     cmds:
-      - docker run --rm -it bunker-sandbox bash
+      - docker run --rm -it -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}} bash
 
   sandbox:clean:
     desc: Remove bunker-sandbox image
     cmds:
-      - docker rmi bunker-sandbox
+      - docker rmi {{.IMAGE}}
 
   sandbox:logs:
     desc: View logs from running sandbox
     cmds:
-      - docker logs bunker-sandbox
+      - docker logs {{.IMAGE}}
+
+  claude:login:
+    desc: One-time Claude Code login; the session is stored in the persistent volume
+    cmds:
+      - docker run --rm -it -e SKIP_VPN=1 -v "{{.CLAUDE_MOUNT}}" {{.IMAGE}} claude
+
+  claude:reset:
+    desc: Delete the Claude Code state volume (forces a fresh login)
+    cmds:
+      - docker volume rm {{.CLAUDE_VOLUME}}
 
   config:setup:
     desc: Setup opencode config from ~/.config/opencode
@@ -66,4 +88,29 @@ tasks:
           echo "tui config copied to config/tui.json"
         else
           echo "No tui.json found in ~/.config/opencode/, skipping"
+        fi
+
+  config:setup:claude:
+    desc: Setup Claude Code config from ~/.claude (hooks and statusLine are stripped)
+    cmds:
+      - mkdir -p config/claude
+      - |
+        if [ ! -f ~/.claude/settings.json ]; then
+          echo "No settings.json found in ~/.claude/, skipping"
+        elif ! command -v jq >/dev/null 2>&1; then
+          echo "jq is required to strip host-only hooks/statusLine - install jq or edit config/claude/settings.json by hand" >&2
+          exit 1
+        else
+          # hooks and statusLine point at host scripts that do not exist in the image;
+          # a missing hook script fails the session on its first matching tool call.
+          jq 'del(.hooks, .statusLine)' ~/.claude/settings.json > config/claude/settings.json.tmp
+          mv config/claude/settings.json.tmp config/claude/settings.json
+          echo "Claude settings copied to config/claude/settings.json (hooks/statusLine removed)"
+        fi
+      - |
+        if [ -f ~/.claude/CLAUDE.md ]; then
+          cp ~/.claude/CLAUDE.md config/claude/CLAUDE.md
+          echo "Claude memory copied to config/claude/CLAUDE.md"
+        else
+          echo "No CLAUDE.md found in ~/.claude/, skipping"
         fi

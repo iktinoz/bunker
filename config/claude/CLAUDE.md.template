@@ -1,0 +1,14 @@
+# Bunker sandbox
+
+You are running inside the `bunker` Docker sandbox, not on the host.
+
+- Base: Arch Linux container, user `sandbox` (uid 1000), login shell fish.
+- The filesystem is **ephemeral** — the container runs with `--rm`. Only two things
+  survive: the host directory bind-mounted at the path you were started in
+  (`$ENTRY_DIR`), and `~/.claude` (a named Docker volume holding your login and
+  session history).
+- Anything written outside those two locations is lost when the container exits.
+- `opencode` is installed alongside you and shares this sandbox.
+- An OpenVPN tunnel may be active; if network calls fail, the tunnel's routes or DNS
+  are the first thing to check (`/tmp/openvpn.log`).
+- There is no systemd, no host access, and no Kubernetes context here.

@@ -1,0 +1,6 @@
+{
+  "theme": "auto",
+  "model": "opus",
+  "verbose": false,
+  "includeCoAuthoredBy": false
+}
